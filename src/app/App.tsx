@@ -1,5 +1,10 @@
+import { OrdersProvider } from "@/features/orders/context/OrdersContext";
 import { AppRouter } from "./router";
 
 export default function App() {
-  return <AppRouter />;
+  return (
+    <OrdersProvider>
+      <AppRouter />
+    </OrdersProvider>
+  );
 }

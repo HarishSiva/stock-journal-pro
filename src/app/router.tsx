@@ -10,6 +10,7 @@ import { AppShell } from "../layout/AppShell";
 import { DashboardPage } from "../features/dashboard/pages/DashboardPage";
 import { OrdersPage } from "../features/orders/pages/OrdersPage";
 import { PortfolioPage } from "../features/portfolio/pages/PortfolioPage";
+import { TransactionsPage } from "../features/transactions/pages/TransactionsPage";
 import { WatchlistPage } from "../features/watchlist/pages/WatchlistPage";
 import { ReportsPage } from "../features/reports/pages/ReportsPage";
 import { SettingsPage } from "../features/settings/pages/SettingsPage";
@@ -24,6 +25,7 @@ export function AppRouter() {
           <Route path="/dashboard" element={<DashboardPage />} />
           <Route path="/orders" element={<OrdersPage />} />
           <Route path="/portfolio" element={<PortfolioPage />} />
+          <Route path="/transactions" element={<TransactionsPage />} />
           <Route path="/watchlist" element={<WatchlistPage />} />
           <Route path="/reports" element={<ReportsPage />} />
           <Route path="/settings" element={<SettingsPage />} />

@@ -17,6 +17,11 @@ const menuItems = [
     icon: "💼",
   },
   {
+    title: "Transactions",
+    path: "/transactions",
+    icon: "🧾",
+  },
+  {
     title: "Watchlist",
     path: "/watchlist",
     icon: "⭐",

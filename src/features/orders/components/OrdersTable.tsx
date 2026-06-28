@@ -1,130 +1,132 @@
-import type { CSSProperties } from "react";
-import type { Order } from "../types/order";
+import { Badge } from "@/shared/components/Badge";
+import { useOrders } from "../hooks/useOrders";
+import { useOrdersView } from "../hooks/useOrdersView";
 
-type Props = {
-  orders: Order[];
-  loading: boolean;
-  onDelete: (id: string) => void | Promise<void>;
-};
+type Filter = "ALL" | "BUY" | "SELL";
 
-export function OrdersTable({
-  orders,
-  loading,
-  onDelete,
-}: Props) {
-  if (orders.length === 0) {
-    return (
-      <p style={emptyState}>
-        No orders yet. Add your first trade.
-      </p>
-    );
+export function OrdersTable() {
+  const { deleteOrder } = useOrders();
+
+  const {
+    orders,
+    filter,
+    setFilter,
+    search,
+    setSearch,
+    stats,
+    loading,
+  } = useOrdersView();
+
+  if (loading) {
+    return <div>Loading orders...</div>;
   }
 
   return (
-    <div style={tableWrapper}>
-      <table style={table}>
-        <thead>
-          <tr style={headerRow}>
-            <th style={th}>Symbol</th>
-            <th style={th}>Side</th>
-            <th style={th}>Qty</th>
-            <th style={th}>Price</th>
-            <th style={th}>Broker</th>
-            <th style={th}>Date</th>
-            <th style={th}>Action</th>
-          </tr>
-        </thead>
+    <div style={{ padding: 18, border: "1px solid #e5e7eb", borderRadius: 14, background: "white", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+        <h2 style={{ margin: 0 }}>Orders</h2>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", color: "#6b7280", fontSize: 13 }}>
+          <span>Orders: {stats.total}</span>
+          <span>BUY: {stats.buyVolume.toFixed(2)}</span>
+          <span>SELL: {stats.sellVolume.toFixed(2)}</span>
+        </div>
+      </div>
 
-        <tbody>
-          {orders.map((order) => (
-            <tr key={order.id}>
-              <td style={td}>{order.symbol}</td>
+      <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+        <input
+          style={{ padding: "10px 12px", border: "1px solid #d1d5db", borderRadius: 8, minWidth: 180 }}
+          placeholder="Search symbol..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
 
-              <td
-                style={{
-                  ...td,
-                  color:
-                    order.side === "BUY"
-                      ? "#16a34a"
-                      : "#dc2626",
-                  fontWeight: 600,
-                }}
-              >
-                {order.side}
-              </td>
+        <select
+          style={{ padding: "10px 12px", border: "1px solid #d1d5db", borderRadius: 8 }}
+          value={filter}
+          onChange={(e) => setFilter(e.target.value as Filter)}
+        >
+          <option value="ALL">ALL</option>
+          <option value="BUY">BUY</option>
+          <option value="SELL">SELL</option>
+        </select>
+      </div>
 
-              <td style={td}>{order.quantity}</td>
+      <div style={{ overflowX: "auto" }}>
+        <table
+          style={{
+            width: "100%",
+            borderCollapse: "collapse",
+          }}
+        >
+          <thead>
+            <tr style={{ background: "#f9fafb", textAlign: "left" }}>
+              <th style={{ padding: "10px 8px" }}>Symbol</th>
+              <th style={{ padding: "10px 8px" }}>Side</th>
+              <th style={{ padding: "10px 8px" }}>Qty</th>
+              <th style={{ padding: "10px 8px" }}>Price</th>
+              <th style={{ padding: "10px 8px" }}>Broker</th>
+              <th style={{ padding: "10px 8px" }}>Date</th>
+              <th style={{ padding: "10px 8px" }}>Action</th>
+            </tr>
+          </thead>
 
-              <td style={td}>
-                ₹ {order.price.toFixed(2)}
-              </td>
+          <tbody>
+            {orders.map((order) => (
+              <tr key={order.id} style={{ borderBottom: "1px solid #f3f4f6" }}>
+                <td style={{ padding: "10px 8px", fontWeight: 600 }}>{order.symbol}</td>
 
-              <td style={td}>{order.broker}</td>
+                <td style={{ padding: "10px 8px" }}>
+                  <Badge
+                    label={order.side}
+                    type={order.side === "BUY" ? "buy" : "sell"}
+                  />
+                </td>
 
-              <td style={td}>{order.date}</td>
+                <td style={{ padding: "10px 8px" }}>{order.quantity}</td>
+                <td style={{ padding: "10px 8px" }}>{order.price}</td>
+                <td style={{ padding: "10px 8px" }}>{order.broker}</td>
 
-              <td style={td}>
-                <button
-                  disabled={loading}
-                  onClick={() => onDelete(order.id)}
+                <td style={{ padding: "10px 8px" }}>
+                  {order.date
+                    ? new Date(order.date).toLocaleDateString()
+                    : "-"}
+                </td>
+
+                <td style={{ padding: "10px 8px" }}>
+                  <button
+                    onClick={() => void deleteOrder(order.id)}
+                    style={{
+                      color: "white",
+                      background: "#d32f2f",
+                      border: "none",
+                      padding: "6px 10px",
+                      borderRadius: 6,
+                      cursor: "pointer",
+                    }}
+                  >
+                    Delete
+                  </button>
+                </td>
+              </tr>
+            ))}
+
+            {orders.length === 0 && (
+              <tr>
+                <td
+                  colSpan={7}
                   style={{
-                    ...deleteBtn,
-                    opacity: loading ? 0.5 : 1,
-                    cursor: loading
-                      ? "not-allowed"
-                      : "pointer",
+                    textAlign: "center",
+                    padding: 20,
+                    color: "#6b7280",
                   }}
                 >
-                  🗑 Delete
-                </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+                  No orders found.
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
-
-/* ---------------- Styles ---------------- */
-
-const emptyState: CSSProperties = {
-  padding: 20,
-  opacity: 0.6,
-};
-
-const tableWrapper: CSSProperties = {
-  overflowX: "auto",
-  border: "1px solid #e5e7eb",
-  borderRadius: 8,
-};
-
-const table: CSSProperties = {
-  width: "100%",
-  borderCollapse: "collapse",
-};
-
-const headerRow: CSSProperties = {
-  background: "#f8fafc",
-};
-
-const th: CSSProperties = {
-  textAlign: "left",
-  padding: "12px",
-  borderBottom: "1px solid #e5e7eb",
-  fontWeight: 600,
-};
-
-const td: CSSProperties = {
-  padding: "12px",
-  borderBottom: "1px solid #f1f5f9",
-};
-
-const deleteBtn: CSSProperties = {
-  padding: "6px 12px",
-  border: "none",
-  borderRadius: 6,
-  background: "#ef4444",
-  color: "white",
-  fontWeight: 500,
-};

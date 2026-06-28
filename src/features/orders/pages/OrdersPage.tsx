@@ -1,15 +1,10 @@
 import { OrderForm } from "../components/OrderForm";
 import { OrdersDashboard } from "../components/OrdersDashBoard";
 import { OrdersTable } from "../components/OrdersTable";
-import { useOrdersStore } from "../store/ordersStore";
+import { useOrders } from "../hooks/useOrders";
 
 export function OrdersPage() {
-  const {
-    orders,
-    addOrder,
-    deleteOrder,
-    loading,
-  } = useOrdersStore();
+  const { orders, addOrder } = useOrders();
 
   return (
     <div
@@ -19,19 +14,22 @@ export function OrdersPage() {
         margin: "0 auto",
       }}
     >
-      <h1>Stock Journal Pro</h1>
+      <div style={{ marginBottom: 20 }}>
+        <h1 style={{ margin: 0 }}>Orders</h1>
+        <p style={{ margin: "6px 0 0", color: "#6b7280" }}>
+          Capture every buy and sell decision in one place.
+        </p>
+      </div>
 
       <OrderForm onSubmit={addOrder} />
 
-      <div style={{ height: 24 }} />
+      <div style={{ height: 20 }} />
 
       <OrdersDashboard orders={orders} />
 
-      <OrdersTable
-        orders={orders}
-        loading={loading}
-        onDelete={deleteOrder}
-      />
+      <div style={{ height: 20 }} />
+
+      <OrdersTable />
     </div>
   );
 }

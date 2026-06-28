@@ -1,4 +1,4 @@
-import { getDB } from "../../../shared/db/sqlite"
+import { getDB } from "../../../shared/db/sqlite";
 import type { Order } from "../types/order";
 
 export async function initOrdersTable() {
@@ -21,7 +21,7 @@ export async function initOrdersTable() {
 
 export async function addOrderDB(order: Order) {
   const db = await getDB();
-console.log("Saving to SQLite...");
+
   await db.execute(
     `INSERT INTO orders VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
@@ -36,15 +36,22 @@ console.log("Saving to SQLite...");
       order.notes ?? "",
     ]
   );
-    console.log("SQLite save complete");
+
+  console.log("Saved successfully");
 }
 
 export async function getOrdersDB(): Promise<Order[]> {
   const db = await getDB();
-  return await db.select("SELECT * FROM orders ORDER BY date DESC");
+
+  const result = await db.select<Order[]>(
+    "SELECT * FROM orders ORDER BY date DESC"
+  );
+
+  return result ?? [];
 }
 
 export async function deleteOrderDB(id: string) {
   const db = await getDB();
+
   await db.execute("DELETE FROM orders WHERE id = ?", [id]);
 }
