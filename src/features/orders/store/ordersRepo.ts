@@ -55,3 +55,22 @@ export async function deleteOrderDB(id: string) {
 
   await db.execute("DELETE FROM orders WHERE id = ?", [id]);
 }
+
+export async function updateOrderDB(order: Order) {
+  const db = await getDB();
+
+  await db.execute(
+    `UPDATE orders SET symbol = ?, side = ?, quantity = ?, price = ?, broker = ?, date = ?, investmentThesis = ?, notes = ? WHERE id = ?`,
+    [
+      order.symbol,
+      order.side,
+      order.quantity,
+      order.price,
+      order.broker,
+      order.date,
+      order.investmentThesis ?? "",
+      order.notes ?? "",
+      order.id,
+    ]
+  );
+}

@@ -13,6 +13,7 @@ import {
   getOrdersDB,
   addOrderDB,
   deleteOrderDB,
+  updateOrderDB,
 } from "../store/ordersRepo";
 import { OrdersContext } from "./orders-context";
 type Props = {
@@ -76,6 +77,21 @@ export function OrdersProvider({ children }: Props) {
     []
   );
 
+  const updateOrder = useCallback(
+    async (order: Order) => {
+      try {
+        await updateOrderDB(order);
+
+        // reload from DB
+        const data = await getOrdersDB();
+        setOrders(data);
+      } catch (err) {
+        console.error("Failed to update order", err);
+      }
+    },
+    []
+  );
+
   const value = useMemo(
     () => ({
       orders,
@@ -83,8 +99,9 @@ export function OrdersProvider({ children }: Props) {
       refresh,
       addOrder,
       deleteOrder,
+      updateOrder,
     }),
-    [orders, loading, refresh, addOrder, deleteOrder]
+    [orders, loading, refresh, addOrder, deleteOrder, updateOrder]
   );
 
   return (

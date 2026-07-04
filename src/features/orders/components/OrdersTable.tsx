@@ -1,10 +1,15 @@
 import { Badge } from "@/shared/components/Badge";
 import { useOrders } from "../hooks/useOrders";
 import { useOrdersView } from "../hooks/useOrdersView";
+import type { Order } from "../types/order";
 
 type Filter = "ALL" | "BUY" | "SELL";
 
-export function OrdersTable() {
+interface OrdersTableProps {
+  onEditOrder?: (order: Order) => void;
+}
+
+export function OrdersTable({ onEditOrder }: OrdersTableProps) {
   const { deleteOrder } = useOrders();
 
   const {
@@ -66,7 +71,7 @@ export function OrdersTable() {
               <th style={{ padding: "10px 8px" }}>Price</th>
               <th style={{ padding: "10px 8px" }}>Broker</th>
               <th style={{ padding: "10px 8px" }}>Date</th>
-              <th style={{ padding: "10px 8px" }}>Action</th>
+              <th style={{ padding: "10px 8px" }}>Actions</th>
             </tr>
           </thead>
 
@@ -92,7 +97,21 @@ export function OrdersTable() {
                     : "-"}
                 </td>
 
-                <td style={{ padding: "10px 8px" }}>
+                <td style={{ padding: "10px 8px", display: "flex", gap: 8 }}>
+                  <button
+                    onClick={() => onEditOrder?.(order)}
+                    style={{
+                      color: "white",
+                      background: "#2563eb",
+                      border: "none",
+                      padding: "6px 10px",
+                      borderRadius: 6,
+                      cursor: "pointer",
+                      fontSize: 12,
+                    }}
+                  >
+                    Edit
+                  </button>
                   <button
                     onClick={() => void deleteOrder(order.id)}
                     style={{
@@ -102,6 +121,7 @@ export function OrdersTable() {
                       padding: "6px 10px",
                       borderRadius: 6,
                       cursor: "pointer",
+                      fontSize: 12,
                     }}
                   >
                     Delete

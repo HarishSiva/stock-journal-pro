@@ -22,6 +22,26 @@ const menuItems = [
     icon: "🧾",
   },
   {
+    title: "Expense Dashboard",
+    path: "/expenses-dashboard",
+    icon: "💳",
+  },
+  {
+    title: "Savings Analysis",
+    path: "/savings",
+    icon: "📊",
+  },
+  {
+    title: "Expenses",
+    path: "/expenses",
+    icon: "🧾",
+  },
+  {
+    title: "Expense Reports",
+    path: "/expense-reports",
+    icon: "📈",
+  },
+  {
     title: "Watchlist",
     path: "/watchlist",
     icon: "⭐",
