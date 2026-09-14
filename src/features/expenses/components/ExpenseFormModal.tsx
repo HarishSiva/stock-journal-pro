@@ -1,13 +1,46 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Modal } from "@/shared/ui/Modal/Modal";
-import { expenseCategories, type ExpenseCategory, type Expense } from "../types/expense";
+import { useExpenseCategories } from "../hooks/useExpenseCategories";
+import { type ExpenseCategory, type Expense, type ExpenseType } from "../types/expense";
+
+function normalizeExpenseDate(dateString: string): string {
+  const trimmed = dateString.trim();
+  if (!trimmed) {
+    return new Date().toISOString().slice(0, 10);
+  }
+
+  const parsed = new Date(trimmed);
+  if (!Number.isNaN(parsed.getTime())) {
+    return parsed.toISOString().slice(0, 10);
+  }
+
+  const slashDateMatch = trimmed.match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{2,4})$/);
+  if (slashDateMatch) {
+    const day = Number(slashDateMatch[1]);
+    const month = Number(slashDateMatch[2]);
+    let year = Number(slashDateMatch[3]);
+
+    if (year < 100) {
+      year += year >= 70 ? 1900 : 2000;
+    }
+
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      const date = new Date(year, month - 1, day);
+      if (!Number.isNaN(date.getTime())) {
+        return date.toISOString().slice(0, 10);
+      }
+    }
+  }
+
+  return new Date().toISOString().slice(0, 10);
+}
 
 interface ExpenseFormModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (expense: Omit<Expense, "id">) => Promise<void>;
+  onSubmit: (expense: Omit<Expense, "id">) => void | Promise<void>;
   editingExpense?: Expense | null;
-  onUpdate?: (id: string, expense: Omit<Expense, "id">) => Promise<void>;
+  onUpdate?: (id: string, expense: Omit<Expense, "id">) => void | Promise<void>;
 }
 
 export function ExpenseFormModal({
@@ -17,10 +50,12 @@ export function ExpenseFormModal({
   editingExpense,
   onUpdate,
 }: ExpenseFormModalProps) {
+  const { categories } = useExpenseCategories();
   const [form, setForm] = useState(
     editingExpense
       ? {
           amount: editingExpense.amount.toString(),
+          type: editingExpense.type,
           category: editingExpense.category,
           paymentMethod: editingExpense.paymentMethod,
           account: editingExpense.account,
@@ -31,7 +66,8 @@ export function ExpenseFormModal({
         }
       : {
           amount: "",
-          category: "Food" as ExpenseCategory,
+          type: "expense" as ExpenseType,
+          category: categories.includes("Income") ? "Income" as ExpenseCategory : "Food" as ExpenseCategory,
           paymentMethod: "Card",
           account: "Main",
           merchant: "",
@@ -42,6 +78,35 @@ export function ExpenseFormModal({
   );
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!editingExpense) {
+      setForm({
+        amount: "",
+        type: "expense",
+        category: categories.includes("Income") ? "Income" : "Food",
+        paymentMethod: "Card",
+        account: "Main",
+        merchant: "",
+        notes: "",
+        date: new Date().toISOString().slice(0, 10),
+        receiptImage: "",
+      });
+      return;
+    }
+
+    setForm({
+      amount: editingExpense.amount.toString(),
+      type: editingExpense.type,
+      category: editingExpense.category,
+      paymentMethod: editingExpense.paymentMethod,
+      account: editingExpense.account,
+      merchant: editingExpense.merchant,
+      notes: editingExpense.notes,
+      date: normalizeExpenseDate(editingExpense.date),
+      receiptImage: editingExpense.receiptImage ?? "",
+    });
+  }, [editingExpense, categories]);
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
@@ -68,6 +133,7 @@ export function ExpenseFormModal({
 
       const payload = {
         amount,
+        type: form.type,
         category: form.category,
         paymentMethod: form.paymentMethod,
         account: form.account,
@@ -78,14 +144,15 @@ export function ExpenseFormModal({
       };
 
       if (editingExpense && onUpdate) {
-        await onUpdate(editingExpense.id, payload);
+        await Promise.resolve(onUpdate(editingExpense.id, payload));
       } else {
-        await onSubmit(payload);
+        await Promise.resolve(onSubmit(payload));
       }
 
       setForm({
         amount: "",
-        category: "Food",
+        type: "expense",
+        category: categories.includes("Income") ? "Income" : "Food",
         paymentMethod: "Card",
         account: "Main",
         merchant: "",
@@ -105,7 +172,8 @@ export function ExpenseFormModal({
   const handleClose = () => {
     setForm({
       amount: "",
-      category: "Food",
+      type: "expense",
+      category: categories.includes("Income") ? "Income" : "Food",
       paymentMethod: "Card",
       account: "Main",
       merchant: "",
@@ -164,6 +232,29 @@ export function ExpenseFormModal({
 
           <div>
             <label style={{ display: "block", marginBottom: 6, fontWeight: 500, fontSize: 14 }}>
+              Type
+            </label>
+            <select
+              name="type"
+              value={form.type}
+              onChange={handleChange}
+              style={{
+                width: "100%",
+                padding: "10px 12px",
+                border: "1px solid #d1d5db",
+                borderRadius: 8,
+                boxSizing: "border-box",
+              }}
+            >
+              <option value="expense">Expense</option>
+              <option value="income">Income</option>
+            </select>
+          </div>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+          <div>
+            <label style={{ display: "block", marginBottom: 6, fontWeight: 500, fontSize: 14 }}>
               Category
             </label>
             <select
@@ -178,7 +269,7 @@ export function ExpenseFormModal({
                 boxSizing: "border-box",
               }}
             >
-              {expenseCategories.map((cat) => (
+              {categories.map((cat) => (
                 <option key={cat} value={cat}>
                   {cat}
                 </option>

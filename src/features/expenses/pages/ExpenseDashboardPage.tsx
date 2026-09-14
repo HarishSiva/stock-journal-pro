@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from "react";
+import * as XLSX from "xlsx";
+import { useExpenseCategories } from "../hooks/useExpenseCategories";
 import { useExpenses } from "../hooks/useExpenses";
-import { expenseCategories } from "../types/expense";
 
 function formatInr(value: number) {
   return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 2 }).format(value);
@@ -10,6 +11,7 @@ export function ExpenseDashboardPage() {
   const { expenses, importExpensesFromCsv, removeAllExpenses } = useExpenses();
   const [selectedRange, setSelectedRange] = useState<"today" | "month" | "all">("all");
   const [importMessage, setImportMessage] = useState("");
+  const [importWarnings, setImportWarnings] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const filteredExpenses = useMemo(() => {
@@ -28,17 +30,34 @@ export function ExpenseDashboardPage() {
     });
   }, [expenses, selectedRange]);
 
+  const { categories } = useExpenseCategories();
+
   const totals = useMemo(() => {
     const expenseTotal = filteredExpenses.filter((expense) => expense.type === "expense").reduce((sum, expense) => sum + expense.amount, 0);
     const incomeTotal = filteredExpenses.filter((expense) => expense.type === "income").reduce((sum, expense) => sum + expense.amount, 0);
     const savings = incomeTotal - expenseTotal;
-    const byCategory = expenseCategories.map((category) => ({
+    const byCategory = categories.map((category) => ({
       category,
-      amount: filteredExpenses.filter((expense) => expense.type === "expense" && expense.category === category).reduce((sum, expense) => sum + expense.amount, 0),
+      amount: filteredExpenses.filter((expense) => expense.category === category).reduce((sum, expense) => sum + expense.amount, 0),
     }));
 
     return { expenseTotal, incomeTotal, savings, byCategory };
-  }, [filteredExpenses]);
+  }, [filteredExpenses, categories]);
+
+  const parseFileAsCsv = async (file: File) => {
+    const fileName = file.name.toLowerCase();
+    if (fileName.endsWith(".xlsx") || fileName.endsWith(".xls")) {
+      const arrayBuffer = await file.arrayBuffer();
+      const workbook = XLSX.read(arrayBuffer, { type: "array" });
+      const firstSheet = workbook.SheetNames[0];
+      if (!firstSheet) {
+        throw new Error("Excel file contains no sheets.");
+      }
+      return XLSX.utils.sheet_to_csv(workbook.Sheets[firstSheet]);
+    }
+
+    return file.text();
+  };
 
   const handleImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -46,10 +65,20 @@ export function ExpenseDashboardPage() {
       return;
     }
 
-    const text = await file.text();
-    const imported = importExpensesFromCsv(text);
-    setImportMessage(`${imported.length} expense item(s) imported from ${file.name}.`);
-    event.target.value = "";
+    try {
+      const text = await parseFileAsCsv(file);
+      const result = importExpensesFromCsv(text);
+      setImportMessage(
+        `${result.imported.length} expense item(s) imported from ${file.name}.` +
+          (result.skipped > 0 ? ` ${result.skipped} row(s) were skipped.` : ""),
+      );
+      setImportWarnings(result.errors);
+    } catch (error) {
+      setImportMessage(`Unable to import ${file.name}.`);
+      setImportWarnings([error instanceof Error ? error.message : String(error)]);
+    } finally {
+      event.target.value = "";
+    }
   };
 
   return (
@@ -78,7 +107,13 @@ export function ExpenseDashboardPage() {
           >
             Delete All
           </button>
-          <input ref={fileInputRef} type="file" accept=".csv,text/csv" hidden onChange={handleImport} />
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=",.csv,.txt,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+            hidden
+            onChange={handleImport}
+          />
           <select
             value={selectedRange}
             onChange={(event) => setSelectedRange(event.target.value as "today" | "month" | "all")}
@@ -92,6 +127,16 @@ export function ExpenseDashboardPage() {
       </div>
 
       {importMessage ? <div style={{ marginTop: 12, color: "#047857", fontSize: 13 }}>{importMessage}</div> : null}
+      {importWarnings.length > 0 ? (
+        <div style={{ marginTop: 8, color: "#b45309", fontSize: 13, padding: 12, background: "#fffbeb", borderRadius: 8, border: "1px solid #fcd34d" }}>
+          <strong>Import warnings:</strong>
+          <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+            {importWarnings.map((warning, index) => (
+              <li key={index}>{warning}</li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
 
       <div style={{ marginTop: 16, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
         {[

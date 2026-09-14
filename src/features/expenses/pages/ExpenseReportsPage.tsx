@@ -1,6 +1,6 @@
 import { useMemo } from "react";
+import { useExpenseCategories } from "../hooks/useExpenseCategories";
 import { useExpenses } from "../hooks/useExpenses";
-import { expenseCategories } from "../types/expense";
 
 export function ExpenseReportsPage() {
   const { expenses, totals } = useExpenses();
@@ -8,11 +8,13 @@ export function ExpenseReportsPage() {
   const formatCurrency = (value: number) =>
     new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(value);
 
+  const { categories } = useExpenseCategories();
+
   const insights = useMemo(() => {
     const expenseItems = expenses.filter((expense) => expense.type === "expense");
     const incomeItems = expenses.filter((expense) => expense.type === "income");
 
-    const categoryTotals = expenseCategories
+    const categoryTotals = categories
       .map((category) => ({
         category,
         amount: expenseItems.filter((expense) => expense.category === category).reduce((sum, expense) => sum + expense.amount, 0),

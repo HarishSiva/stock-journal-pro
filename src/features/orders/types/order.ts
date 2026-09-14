@@ -7,7 +7,7 @@ export interface Order {
   quantity: number;
   price: number;
   broker: string;
-  date: string;
+  trade_date: string;
   investmentThesis?: string;
   notes?: string;
 }

@@ -12,10 +12,12 @@ export const expenseCategories = [
   "Travel",
   "Investment",
   "Insurance",
+  "Income",
   "Uncategorized",
 ] as const;
 
-export type ExpenseCategory = (typeof expenseCategories)[number];
+export type DefaultExpenseCategory = (typeof expenseCategories)[number];
+export type ExpenseCategory = string;
 export type ExpenseType = "expense" | "income";
 
 export interface Expense {

@@ -1,239 +1,380 @@
-import type { Order } from "../../orders/types/order";
-import type { Transaction } from "../../transactions/types/transaction";
-import { getPrices, normalizeIndianQuoteSymbol, type PriceLookupResult } from "@/shared/services/priceService";
-
-export type ManualPriceEntry = {
-  price: number;
-  lastUpdated: string;
-};
-
-type Lot = {
-  quantity: number;
-  buyPrice: number;
-  buyDate: string;
-};
-
-type HoldingState = {
-  holding: Holding;
-  lots: Lot[];
-  realizedNetPnl: number;
-  realizedTax: number;
-  realizedCostBasis: number;
-  totalBuyCost: number;
-};
-
-export type Holding = {
+export interface Holding {
   symbol: string;
   quantity: number;
-  avgPrice: number;
+  totalBoughtQty: number;
+  totalSoldQty: number;
+  currentlyHeldQty: number;
   invested: number;
-
+  totalCostBasis: number;
   currentPrice: number;
   currentValue: number;
-
   unrealizedPnL: number;
   netPnl: number;
   gainPct: number;
-  priceStatus: "loading" | "ready" | "unavailable";
-  priceError?: string;
-  manualPrice?: number;
-  lastUpdated?: string;
-  holdingAgeDays: number;
-  holdingAgeLabel: string;
-  realizedNetPnl: number;
-  realizedTax: number;
-  totalCostBasis: number;
-};
-
-function calculateHoldingAgeDays(buyDate: string): number {
-  const diffMs = Date.now() - new Date(buyDate).getTime();
-  return Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
+  avgPrice: number;
+  lastUpdated: string | null;
 }
 
-function formatHoldingAge(days: number): string {
-  if (days <= 0) {
-    return "New";
-  }
+export function calculateHoldings(
+  orders: any[],
+  marketPrices: Record<string, number>
+): Holding[] {
 
-  const years = Math.floor(days / 365);
-  const months = Math.floor((days % 365) / 30);
+  // Internal structure used only for calculation.
+  // These fields are NOT returned in Holding.
+  const internal = new Map<
+    string,
+    {
+      holding: Holding;
+      buyLots: { qty: number; price: number }[];
+      sellLots: { qty: number; price: number }[];
+      realizedPnL: number;
+    }
+  >();
 
-  if (years > 0) {
-    return `${years}y${months > 0 ? ` ${months}m` : ""}`;
-  }
+  // ---------------------------------------------------------
+  // Parse trade date
+  // Supports:
+  // DD-MM-YYYY hh:mm AM/PM
+  // DD/MM/YYYY hh:mm AM/PM
+  // ISO dates as fallback
+  // ---------------------------------------------------------
+  function parseTradeDate(value: any): number {
+    if (!value) return 0;
 
-  if (months > 0) {
-    return `${months}m`;
-  }
+    const text = String(value).trim();
 
-  return `${days}d`;
-}
+    // Example: 12-06-2023 03:24 PM
+    const match = text.match(
+      /^(\d{1,2})[-/](\d{1,2})[-/](\d{4})\s+(\d{1,2}):(\d{2})\s*(AM|PM)$/i
+    );
 
-function createHolding(symbol: string): Holding {
-  return {
-    symbol,
-    quantity: 0,
-    avgPrice: 0,
-    invested: 0,
-    currentPrice: 0,
-    currentValue: 0,
-    unrealizedPnL: 0,
-    netPnl: 0,
-    gainPct: 0,
-    priceStatus: "loading",
-    manualPrice: undefined,
-    lastUpdated: undefined,
-    holdingAgeDays: 0,
-    holdingAgeLabel: "New",
-    realizedNetPnl: 0,
-    realizedTax: 0,
-    totalCostBasis: 0,
-  };
-}
+    if (match) {
+      const day = Number(match[1]);
+      const month = Number(match[2]) - 1;
+      const year = Number(match[3]);
 
-export function calculateHoldingsBase(orders: Order[]): Holding[] {
-  const states: Record<string, HoldingState> = {};
+      let hour = Number(match[4]);
+      const minute = Number(match[5]);
+      const ampm = match[6].toUpperCase();
 
-  for (const order of orders) {
-    const symbol = order.symbol;
+      if (ampm === "PM" && hour !== 12) {
+        hour += 12;
+      }
 
-    if (!states[symbol]) {
-      states[symbol] = {
-        holding: createHolding(symbol),
-        lots: [],
-        realizedNetPnl: 0,
-        realizedTax: 0,
-        realizedCostBasis: 0,
-        totalBuyCost: 0,
-      };
+      if (ampm === "AM" && hour === 12) {
+        hour = 0;
+      }
+
+      return new Date(
+        year,
+        month,
+        day,
+        hour,
+        minute
+      ).getTime();
     }
 
-    const state = states[symbol];
+    const parsed = new Date(text).getTime();
 
-    if (order.side === "BUY") {
-      state.lots.push({
-        quantity: order.quantity,
-        buyPrice: order.price,
-        buyDate: order.date,
+    return Number.isNaN(parsed) ? 0 : parsed;
+  }
+
+  // ---------------------------------------------------------
+  // Sort orders chronologically
+  // ---------------------------------------------------------
+  const sortedOrders = [...orders].sort((a, b) => {
+    const dateA = parseTradeDate(a.trade_date ?? a.Date);
+    const dateB = parseTradeDate(b.trade_date ?? b.Date);
+
+    return dateA - dateB;
+  });
+
+  // ---------------------------------------------------------
+  // Process every order
+  // ---------------------------------------------------------
+  for (const order of sortedOrders) {
+
+    const symbol = String(
+      order.symbol ?? order.Instrument ?? ""
+    ).trim();
+
+    const side = String(
+      order.side ?? order.Side ?? ""
+    ).trim().toUpperCase();
+
+    const qty = Number(
+      order.quantity ?? order.Qty ?? 0
+    );
+
+    const price = Number(
+      order.price ?? order.Price ?? 0
+    );
+
+    if (!symbol || qty <= 0 || price < 0) {
+      continue;
+    }
+
+    // -------------------------------------------------------
+    // Create holding if it doesn't exist
+    // -------------------------------------------------------
+    if (!internal.has(symbol)) {
+
+      internal.set(symbol, {
+        holding: {
+          symbol,
+          quantity: 0,
+          totalBoughtQty: 0,
+          totalSoldQty: 0,
+          currentlyHeldQty: 0,
+          invested: 0,
+          totalCostBasis: 0,
+          currentPrice: 0,
+          currentValue: 0,
+          unrealizedPnL: 0,
+          netPnl: 0,
+          gainPct: 0,
+          avgPrice: 0,
+          lastUpdated: null,
+        },
+
+        buyLots: [],
+        sellLots: [],
+        realizedPnL: 0,
       });
-      state.totalBuyCost += order.price * order.quantity;
     }
 
-    if (order.side === "SELL") {
-      let remainingQty = order.quantity;
-      let grossGain = 0;
-      let stcgGain = 0;
-      let ltcgGain = 0;
-      let costBasisForSell = 0;
+    const data = internal.get(symbol)!;
+    const holding = data.holding;
 
-      while (remainingQty > 0 && state.lots.length > 0) {
-        const lot = state.lots[0];
-        const matchedQty = Math.min(remainingQty, lot.quantity);
-        const sellValue = order.price * matchedQty;
-        const lotCost = lot.buyPrice * matchedQty;
-        const gain = sellValue - lotCost;
-        const holdingAgeDays = calculateHoldingAgeDays(lot.buyDate);
+    // =======================================================
+    // BUY
+    // =======================================================
+    if (side === "BUY") {
 
-        if (holdingAgeDays > 365) {
-          ltcgGain += gain;
-        } else {
-          stcgGain += gain;
-        }
+      holding.totalBoughtQty += qty;
 
-        grossGain += gain;
-        costBasisForSell += lotCost;
+      let remainingQty = qty;
+
+      // -----------------------------------------------------
+      // First match against previous SELL lots.
+      //
+      // This handles:
+      // SELL 100 @ 500
+      // BUY  100 @ 490
+      //
+      // Realized P&L = (500 - 490) * 100
+      // -----------------------------------------------------
+      while (
+        remainingQty > 0 &&
+        data.sellLots.length > 0
+      ) {
+
+        const sellLot = data.sellLots[0];
+
+        const matchedQty = Math.min(
+          remainingQty,
+          sellLot.qty
+        );
+
+        data.realizedPnL +=
+          (sellLot.price - price) * matchedQty;
+
+        sellLot.qty -= matchedQty;
         remainingQty -= matchedQty;
-        lot.quantity -= matchedQty;
 
-        if (lot.quantity <= 0) {
-          state.lots.shift();
+        if (sellLot.qty <= 0) {
+          data.sellLots.shift();
         }
       }
 
-      const shortTermTax = stcgGain * 0.15;
-      const longTermTax = Math.max(0, ltcgGain - 100000) * 0.1;
-      const taxAmount = shortTermTax + longTermTax;
-      state.realizedTax += taxAmount;
-      state.realizedNetPnl += grossGain - taxAmount;
-      state.realizedCostBasis += costBasisForSell;
+      // -----------------------------------------------------
+      // Any remaining BUY quantity becomes an open position
+      // -----------------------------------------------------
+      if (remainingQty > 0) {
+        data.buyLots.push({
+          qty: remainingQty,
+          price,
+        });
+      }
+    }
+
+    // =======================================================
+    // SELL
+    // =======================================================
+    else if (side === "SELL") {
+
+      holding.totalSoldQty += qty;
+
+      let remainingQty = qty;
+
+      // -----------------------------------------------------
+      // First match against previous BUY lots.
+      //
+      // Example:
+      // BUY 100 @ 490
+      // SELL 100 @ 500
+      //
+      // Realized P&L = (500 - 490) * 100
+      // -----------------------------------------------------
+      while (
+        remainingQty > 0 &&
+        data.buyLots.length > 0
+      ) {
+
+        const buyLot = data.buyLots[0];
+
+        const matchedQty = Math.min(
+          remainingQty,
+          buyLot.qty
+        );
+
+        data.realizedPnL +=
+          (price - buyLot.price) * matchedQty;
+
+        buyLot.qty -= matchedQty;
+        remainingQty -= matchedQty;
+
+        if (buyLot.qty <= 0) {
+          data.buyLots.shift();
+        }
+      }
+
+      // -----------------------------------------------------
+      // Any remaining SELL quantity becomes a short position.
+      // -----------------------------------------------------
+      if (remainingQty > 0) {
+        data.sellLots.push({
+          qty: remainingQty,
+          price,
+        });
+      }
     }
   }
 
-  return Object.values(states).map((state) => {
-    const invested = state.lots.reduce((sum, lot) => sum + lot.buyPrice * lot.quantity, 0);
-    const quantity = state.lots.reduce((sum, lot) => sum + lot.quantity, 0);
-    const avgPrice = quantity > 0 ? invested / quantity : 0;
+  // ---------------------------------------------------------
+  // Build final Holding[]
+  // ---------------------------------------------------------
+  const result: Holding[] = [];
 
-    const oldestLot = [...state.lots].sort((a, b) => new Date(a.buyDate).getTime() - new Date(b.buyDate).getTime())[0];
-    const holdingAgeDays = oldestLot ? calculateHoldingAgeDays(oldestLot.buyDate) : 0;
+  for (const [symbol, data] of internal) {
 
-    state.holding.quantity = quantity;
-    state.holding.avgPrice = avgPrice;
-    state.holding.invested = invested;
-    state.holding.realizedNetPnl = state.realizedNetPnl;
-    state.holding.realizedTax = state.realizedTax;
-    state.holding.totalCostBasis = state.totalBuyCost;
-    state.holding.holdingAgeDays = holdingAgeDays;
-    state.holding.holdingAgeLabel = formatHoldingAge(holdingAgeDays);
+    const holding = data.holding;
 
-    return state.holding;
-  });
-}
+    // -------------------------------------------------------
+    // User-supplied market price
+    // -------------------------------------------------------
+    const marketPrice = Number(
+      marketPrices[symbol] ?? 0
+    );
 
-export function calculateHoldings(orders: Order[]): Holding[] {
-  return calculateHoldingsBase(orders);
-}
+    holding.currentPrice = marketPrice;
 
-function calculateTransactionCosts(transactions: Transaction[]) {
-  return transactions.reduce(
-    (map, tx) => {
-      const key = tx.symbol;
-      const entry = map[key] ?? { totalCharges: 0 };
-      entry.totalCharges += tx.brokerage + tx.stt + tx.stampDuty + tx.sebiCharges + tx.gst + tx.otherCharges;
-      map[key] = entry;
-      return map;
-    },
-    {} as Record<string, { totalCharges: number }>,
-  );
-}
+    // -------------------------------------------------------
+    // Your requested semantics
+    // quantity = total bought quantity
+    // -------------------------------------------------------
+    holding.quantity = holding.totalBoughtQty;
 
-export async function calculateHoldingsWithPrices(
-  orders: Order[],
-  manualPrices: Record<string, ManualPriceEntry> = {},
-  transactions: Transaction[] = []
-): Promise<Holding[]> {
-  const base = calculateHoldingsBase(orders);
-  const transactionCosts = calculateTransactionCosts(transactions);
+    // -------------------------------------------------------
+    // Current quantity
+    // -------------------------------------------------------
+    holding.currentlyHeldQty =
+      holding.totalBoughtQty -
+      holding.totalSoldQty;
 
-  const symbols = base.map((b) => b.symbol);
-  const { prices, errors }: PriceLookupResult = await getPrices(symbols);
+    // -------------------------------------------------------
+    // Calculate total BUY cost
+    // -------------------------------------------------------
+    let totalBuyCost = 0;
 
-  return base.map((h) => {
-    const lookupSymbol = normalizeIndianQuoteSymbol(h.symbol);
-    const manualEntry = manualPrices[h.symbol] ?? manualPrices[lookupSymbol];
-    const priceError = errors[lookupSymbol];
-    const resolvedPrice = manualEntry?.price ?? prices[lookupSymbol] ?? 0;
-    const currentPrice = resolvedPrice;
-    const currentValue = h.quantity * currentPrice;
+    for (const order of sortedOrders) {
 
-    const txSummary = transactionCosts[h.symbol];
-    const transactionCharges = txSummary?.totalCharges ?? 0;
-    const unrealizedPnL = currentValue - h.invested;
-    const netPnl = h.realizedNetPnl + unrealizedPnL - transactionCharges;
-    const totalCostBasis = h.totalCostBasis || h.invested;
-    const gainPct = totalCostBasis > 0 ? (netPnl / totalCostBasis) * 100 : 0;
+      const orderSymbol = String(
+        order.symbol ?? order.Instrument ?? ""
+      ).trim();
 
-    return {
-      ...h,
-      currentPrice,
-      currentValue,
-      unrealizedPnL,
-      netPnl,
-      gainPct,
-      manualPrice: manualEntry?.price,
-      lastUpdated: manualEntry?.lastUpdated,
-      priceStatus: manualEntry ? "ready" : priceError ? "unavailable" : "ready",
-      priceError,
-    };
-  });
+      const side = String(
+        order.side ?? order.Side ?? ""
+      ).trim().toUpperCase();
+
+      if (orderSymbol !== symbol || side !== "BUY") {
+        continue;
+      }
+
+      const qty = Number(
+        order.quantity ?? order.Qty ?? 0
+      );
+
+      const price = Number(
+        order.price ?? order.Price ?? 0
+      );
+
+      if (qty > 0) {
+        totalBuyCost += qty * price;
+      }
+    }
+
+    // -------------------------------------------------------
+    // Average historical BUY price
+    // -------------------------------------------------------
+    holding.avgPrice =
+      holding.totalBoughtQty > 0
+        ? totalBuyCost / holding.totalBoughtQty
+        : 0;
+
+    // -------------------------------------------------------
+    // Invested / Cost Basis
+    // -------------------------------------------------------
+    holding.invested =
+      holding.totalBoughtQty * holding.avgPrice;
+
+    holding.totalCostBasis =
+      holding.totalBoughtQty * holding.avgPrice;
+
+    // -------------------------------------------------------
+    // Current market value
+    // -------------------------------------------------------
+    if (holding.currentlyHeldQty > 0) {
+
+      holding.currentValue =
+        holding.currentlyHeldQty *
+        holding.currentPrice;
+
+      // Unrealized P&L on currently held shares
+      holding.unrealizedPnL =
+        holding.currentValue -
+        (
+          holding.currentlyHeldQty *
+          holding.avgPrice
+        );
+
+    } else {
+
+      holding.currentValue = 0;
+      holding.unrealizedPnL = 0;
+    }
+
+    // -------------------------------------------------------
+    // Net P&L
+    // -------------------------------------------------------
+    holding.netPnl =
+      data.realizedPnL +
+      holding.unrealizedPnL;
+
+    // -------------------------------------------------------
+    // Gain %
+    // -------------------------------------------------------
+    holding.gainPct =
+      holding.invested > 0
+        ? (holding.netPnl / holding.invested) * 100
+        : 0;
+
+    holding.lastUpdated =
+      new Date().toISOString();
+
+    result.push(holding);
+  }
+
+  return result;
 }

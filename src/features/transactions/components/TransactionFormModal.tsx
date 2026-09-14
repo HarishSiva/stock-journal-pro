@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Modal } from "@/shared/ui/Modal/Modal";
 import type { Transaction } from "../types/transaction";
 
@@ -26,6 +26,14 @@ const emptyForm = {
   otherCharges: 0,
   notes: "",
 };
+
+function normalizeDateValue(dateString: string): string {
+  const date = new Date(dateString);
+  if (Number.isNaN(date.getTime())) {
+    return new Date().toISOString().slice(0, 10);
+  }
+  return date.toISOString().slice(0, 10);
+}
 
 export function TransactionFormModal({
   isOpen,
@@ -56,6 +64,29 @@ export function TransactionFormModal({
   );
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    setForm(
+      editingTransaction
+        ? {
+            symbol: editingTransaction.symbol,
+            type: editingTransaction.type,
+            quantity: editingTransaction.quantity,
+            pricePerUnit: editingTransaction.pricePerUnit,
+            amount: editingTransaction.amount,
+            date: normalizeDateValue(editingTransaction.date),
+            broker: editingTransaction.broker,
+            brokerage: editingTransaction.brokerage,
+            stt: editingTransaction.stt,
+            stampDuty: editingTransaction.stampDuty,
+            sebiCharges: editingTransaction.sebiCharges,
+            gst: editingTransaction.gst,
+            otherCharges: editingTransaction.otherCharges,
+            notes: editingTransaction.notes || "",
+          }
+        : emptyForm
+    );
+  }, [editingTransaction]);
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>

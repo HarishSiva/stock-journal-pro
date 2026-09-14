@@ -92,8 +92,8 @@ export function OrdersTable({ onEditOrder }: OrdersTableProps) {
                 <td style={{ padding: "10px 8px" }}>{order.broker}</td>
 
                 <td style={{ padding: "10px 8px" }}>
-                  {order.date
-                    ? new Date(order.date).toLocaleDateString()
+                  {order.trade_date
+                    ? new Date(order.trade_date).toLocaleDateString()
                     : "-"}
                 </td>
 

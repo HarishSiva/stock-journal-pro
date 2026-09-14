@@ -11,7 +11,18 @@ function normalizeHeaderKey(value: string): string {
   return value.trim().toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
-function parseCsvLine(line: string): string[] {
+function getFieldValue(row: Record<string, string>, aliases: string[]) {
+  for (const alias of aliases) {
+    const normalized = normalizeHeaderKey(alias);
+    if (normalized in row && row[normalized] !== "") {
+      return row[normalized];
+    }
+  }
+
+  return "";
+}
+
+function parseCsvLine(line: string, delimiter = ","): string[] {
   const values: string[] = [];
   let current = "";
   let inQuotes = false;
@@ -30,7 +41,7 @@ function parseCsvLine(line: string): string[] {
       continue;
     }
 
-    if (char === "," && !inQuotes) {
+    if (char === delimiter && !inQuotes) {
       values.push(current);
       current = "";
       continue;
@@ -41,6 +52,52 @@ function parseCsvLine(line: string): string[] {
 
   values.push(current);
   return values;
+}
+
+function detectDelimiter(sampleLine: string): string {
+  // Try common single-character delimiters and pick the one that yields multiple columns
+  const candidates = [",", "\t", ";", "|"];
+  for (const d of candidates) {
+    const parts = parseCsvLine(sampleLine, d);
+    if (parts.length > 1) return d;
+  }
+  // Fallback to comma
+  return ",";
+}
+
+function isRowStart(line: string): boolean {
+  return /^\s*(date|\d{1,2}\/\d{1,2}\/\d{2,4})/i.test(line.trim());
+}
+
+function normalizeCsvLines(rawCsv: string): string[] {
+  const physicalLines = rawCsv.split(/\r?\n/);
+  const combined: string[] = [];
+  let currentLine = "";
+
+  for (const rawLine of physicalLines) {
+    const trimmedLine = rawLine.trim();
+    if (!trimmedLine) {
+      continue;
+    }
+
+    if (currentLine === "") {
+      currentLine = trimmedLine;
+      continue;
+    }
+
+    if (isRowStart(trimmedLine)) {
+      combined.push(currentLine);
+      currentLine = trimmedLine;
+    } else {
+      currentLine += " " + trimmedLine;
+    }
+  }
+
+  if (currentLine !== "") {
+    combined.push(currentLine);
+  }
+
+  return combined;
 }
 
 function parseAmountValue(rawValue: string): number {
@@ -118,65 +175,154 @@ export function useExpenses() {
       .filter((line) => line.length > 0 && !/^\*+$/.test(line) && !/^-{3,}$/.test(line));
 
     if (lines.length < 2) {
-      return [];
+      return { imported: [], skipped: 0, errors: ["CSV contains no data rows."] };
     }
 
-    const headers = parseCsvLine(lines[0]).map((value) => normalizeHeaderKey(value));
+    const delimiter = detectDelimiter(lines[0]);
+    const headers = parseCsvLine(lines[0], delimiter).map((value) => normalizeHeaderKey(value));
     const imported: Omit<Expense, "id">[] = [];
+    let skipped = 0;
+    const errors: string[] = [];
 
-    for (let i = 1; i < lines.length; i += 1) {
-      const values = parseCsvLine(lines[i]);
+    const dataLines = lines.slice(1);
+    const rows: string[] = [];
+    let pending = "";
+
+    for (let i = 0; i < dataLines.length; i += 1) {
+      const line = dataLines[i];
+      const candidate = pending ? `${pending} ${line}` : line;
+      const values = parseCsvLine(candidate, delimiter);
+
+      if (values.length >= headers.length) {
+        rows.push(candidate);
+        pending = "";
+        continue;
+      }
+
+      pending = candidate;
+    }
+
+    if (pending) {
+      rows.push(pending);
+    }
+
+    for (let i = 0; i < rows.length; i += 1) {
+      const values = parseCsvLine(rows[i], delimiter);
       const row: Record<string, string> = {};
 
       headers.forEach((header, index) => {
         row[header] = values[index]?.trim() ?? "";
       });
 
-      const debitAmount = parseAmountValue(
-        row.debitamount ?? row.debit ?? row.withdrawal ?? row.withdrawalamt ?? row.withdrawalamount ?? row.withdrwalamt ?? "",
+        const debitAmount = parseAmountValue(
+        getFieldValue(row, [
+          "debitamount",
+          "debit",
+          "withdrawal",
+          "withdrawalamt",
+          "withdrawalamount",
+          "withdrwalamt",
+        ]),
       );
       const creditAmount = parseAmountValue(
-        row.creditamount ?? row.credit ?? row.deposit ?? row.income ?? row.depositamt ?? row.depositamount ?? row.creditamt ?? "",
+        getFieldValue(row, [
+          "creditamount",
+          "credit",
+          "deposit",
+          "income",
+          "depositamt",
+          "depositamount",
+          "creditamt",
+        ]),
       );
-      const genericAmount = parseAmountValue(row.amount ?? row.transactionamount ?? row.totalamount ?? row.value ?? row.amt ?? "");
-      const rawType = row.type ?? row.transactiontype ?? row.transaction_type ?? row.transtype ?? row.txntype ?? "";
+      const genericAmount = parseAmountValue(
+        getFieldValue(row, [
+          "amount",
+          "transactionamount",
+          "totalamount",
+          "value",
+          "amt",
+        ]),
+      );
+      const rawType = getFieldValue(row, [
+        "type",
+        "transactiontype",
+        "transaction_type",
+        "transtype",
+        "txntype",
+        "nature",
+        "transaction nature",
+      ]);
 
       let amount = Number.NaN;
       let type: ExpenseType = "expense";
 
-      if (Number.isFinite(creditAmount) && !Number.isFinite(debitAmount)) {
-        amount = creditAmount;
-        type = "income";
-      } else if (Number.isFinite(debitAmount) && !Number.isFinite(creditAmount)) {
+      const hasDebit = Number.isFinite(debitAmount) && debitAmount !== 0;
+      const hasCredit = Number.isFinite(creditAmount) && creditAmount !== 0;
+
+      if (hasDebit && !hasCredit) {
         amount = debitAmount;
         type = "expense";
-      } else if (Number.isFinite(genericAmount)) {
+      } else if (hasCredit && !hasDebit) {
+        amount = creditAmount;
+        type = "income";
+      } else if (hasDebit && hasCredit) {
+        if (Math.abs(debitAmount) >= Math.abs(creditAmount)) {
+          amount = debitAmount;
+          type = "expense";
+        } else {
+          amount = creditAmount;
+          type = "income";
+        }
+      } else if (Number.isFinite(genericAmount) && genericAmount !== 0) {
         amount = genericAmount;
         type = inferType(genericAmount, rawType);
       }
 
       if (!Number.isFinite(amount) || amount === 0) {
+        skipped += 1;
+        errors.push(`Row ${i + 1}: missing or invalid amount.`);
         continue;
       }
 
       const normalizedAmount = Math.abs(amount);
-      const merchant = row.merchant ?? row.description ?? row.narration ?? row.payee ?? row.particulars ?? "Unknown";
+      const merchant = getFieldValue(row, [
+        "merchant",
+        "description",
+        "details",
+        "narration",
+        "payee",
+        "particulars",
+        "remarks",
+        "transactiondescription",
+      ]) || "Unknown";
+      const inferredCategory = inferCategoryFromText(merchant);
+      const category = type === "income" && inferredCategory === "Uncategorized" ? "Income" : inferredCategory;
+      const dateValue = getFieldValue(row, [
+        "date",
+        "valuedate",
+        "valuedat",
+        "value date",
+        "value dat",
+        "transactiondate",
+        "postingdate",
+      ]) || new Date().toISOString().slice(0, 10);
 
       imported.push({
         amount: normalizedAmount,
         type,
-        category: inferCategoryFromText(merchant),
-        paymentMethod: row.paymentmethod ?? row.mode ?? row.channel ?? "Unknown",
-        account: row.account ?? row.bankaccount ?? row.accountnumber ?? "Main",
+        category,
+        paymentMethod: getFieldValue(row, ["paymentmethod", "mode", "channel", "transactionmode"]) || "Unknown",
+        account: getFieldValue(row, ["account", "bankaccount", "accountnumber", "a/c number"]) || "Main",
         merchant,
-        notes: row.notes ?? row.remarks ?? "Imported from bank statement",
-        date: row.date ?? row.transactiondate ?? row.valueDate ?? new Date().toISOString().slice(0, 10),
-        receiptImage: row.receiptimage ?? undefined,
+        notes: getFieldValue(row, ["notes", "remarks", "narration", "description"]) || "Imported from bank statement",
+        date: dateValue,
+        receiptImage: getFieldValue(row, ["receiptimage", "receiptimageurl", "image"]) || undefined,
       });
     }
 
     imported.forEach((item) => addExpense(item));
-    return imported;
+    return { imported, skipped, errors };
   };
 
   const updateExpense = (id: string, values: Partial<Expense>) => {
