@@ -4,8 +4,50 @@ import { useExpenseCategories } from "../hooks/useExpenseCategories";
 import { useExpenses } from "../hooks/useExpenses";
 import type { Expense, ExpenseCategory } from "../types/expense";
 
+type ExpenseGroup =
+  | "Income"
+  | "Expense"
+  | "Savings"
+  | "Investments"
+  | "Self Transfer";
+
+const expenseGroups: ExpenseGroup[] = [
+  "Income",
+  "Expense",
+  "Savings",
+  "Investments",
+  "Self Transfer",
+];
+
+function normalizeCategory(value?: string): string {
+  return (value ?? "").toLowerCase().replace(/[\s_-]/g, "");
+}
+
+function getExpenseGroup(expense: Expense): ExpenseGroup {
+  const category = normalizeCategory(expense.category);
+
+  if (category === "selftransfer") {
+    return "Self Transfer";
+  }
+
+  if (expense.type === "income" || category === "income") {
+    return "Income";
+  }
+
+  if (category === "saving" || category === "savings") {
+    return "Savings";
+  }
+
+  if (category === "investment" || category === "investments") {
+    return "Investments";
+  }
+
+  return "Expense";
+}
+
 export function ExpenseTrackerPage() {
   const { categories } = useExpenseCategories();
+
   const {
     expenses,
     addExpense,
@@ -21,12 +63,16 @@ export function ExpenseTrackerPage() {
   const [categoryFilter, setCategoryFilter] = useState<
     ExpenseCategory | "all"
   >("all");
+  const [groupFilter, setGroupFilter] = useState<ExpenseGroup | "all">("all");
   const [bulkCategory, setBulkCategory] = useState<ExpenseCategory>(
     categories[0] ?? "Food"
   );
 
   useEffect(() => {
-    if (categories.length > 0 && !categories.includes(bulkCategory)) {
+    if (
+      categories.length > 0 &&
+      !categories.includes(bulkCategory)
+    ) {
       setBulkCategory(categories[0]);
     }
   }, [categories, bulkCategory]);
@@ -36,26 +82,49 @@ export function ExpenseTrackerPage() {
 
     return expenses.filter((expense) => {
       const matchesCategory =
-        categoryFilter === "all" || expense.category === categoryFilter;
+        categoryFilter === "all" ||
+        expense.category === categoryFilter;
 
-      const matchesSearch =
-        query === "" ||
-        [
-          expense.merchant,
-          expense.category,
-          expense.notes,
-          expense.paymentMethod,
-          expense.account,
-          expense.type,
-          expense.date,
-          String(expense.amount),
-        ].some((value) =>
-          String(value ?? "").toLowerCase().includes(query)
-        );
+      const matchesGroup =
+        groupFilter === "all" ||
+        getExpenseGroup(expense) === groupFilter;
 
-      return matchesCategory && matchesSearch;
+      const searchableText = [
+        expense.merchant,
+        expense.category,
+        expense.notes,
+        expense.paymentMethod,
+        expense.account,
+        expense.type,
+        expense.date,
+        expense.amount,
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      return (
+        matchesCategory &&
+        matchesGroup &&
+        (query === "" || searchableText.includes(query))
+      );
     });
-  }, [expenses, searchText, categoryFilter]);
+  }, [expenses, searchText, categoryFilter, groupFilter]);
+
+  const groupedExpenses = useMemo(() => {
+    const groups: Record<ExpenseGroup, Expense[]> = {
+      Income: [],
+      Expense: [],
+      Savings: [],
+      Investments: [],
+      "Self Transfer": [],
+    };
+
+    filteredExpenses.forEach((expense) => {
+      groups[getExpenseGroup(expense)].push(expense);
+    });
+
+    return groups;
+  }, [filteredExpenses]);
 
   const visibleSelectedCount = filteredExpenses.filter((expense) =>
     selectedIds.includes(expense.id)
@@ -119,7 +188,7 @@ export function ExpenseTrackerPage() {
         <div>
           <h1 style={{ margin: 0 }}>Expense Tracker</h1>
           <p style={{ margin: "4px 0 0", color: "#6b7280" }}>
-            Record and manage your personal expenses.
+            Manage income, expenses, savings, investments, and transfers.
           </p>
         </div>
 
@@ -166,7 +235,9 @@ export function ExpenseTrackerPage() {
             marginBottom: 12,
           }}
         >
-          <h3 style={{ margin: 0, marginRight: "auto" }}>Expenses</h3>
+          <h3 style={{ margin: 0, marginRight: "auto" }}>
+            Transactions
+          </h3>
 
           <input
             type="search"
@@ -174,12 +245,31 @@ export function ExpenseTrackerPage() {
             onChange={(event) => setSearchText(event.target.value)}
             placeholder="Search expenses..."
             style={{
-              minWidth: 240,
+              minWidth: 220,
               padding: "8px 12px",
               border: "1px solid #d1d5db",
               borderRadius: 8,
             }}
           />
+
+          <select
+            value={groupFilter}
+            onChange={(event) =>
+              setGroupFilter(event.target.value as ExpenseGroup | "all")
+            }
+            style={{
+              padding: "8px 12px",
+              border: "1px solid #d1d5db",
+              borderRadius: 8,
+            }}
+          >
+            <option value="all">All groups</option>
+            {expenseGroups.map((group) => (
+              <option key={group} value={group}>
+                {group}
+              </option>
+            ))}
+          </select>
 
           <select
             value={categoryFilter}
@@ -210,7 +300,7 @@ export function ExpenseTrackerPage() {
               alignItems: "center",
               gap: 8,
               flexWrap: "wrap",
-              marginBottom: 12,
+              marginBottom: 16,
             }}
           >
             <label
@@ -257,9 +347,12 @@ export function ExpenseTrackerPage() {
                 border: "1px solid #d1d5db",
                 background:
                   selectedIds.length > 0 ? "#111827" : "#f3f4f6",
-                color: selectedIds.length > 0 ? "white" : "#9ca3af",
+                color:
+                  selectedIds.length > 0 ? "white" : "#9ca3af",
                 cursor:
-                  selectedIds.length > 0 ? "pointer" : "not-allowed",
+                  selectedIds.length > 0
+                    ? "pointer"
+                    : "not-allowed",
               }}
             >
               Apply Category ({selectedIds.length})
@@ -268,110 +361,152 @@ export function ExpenseTrackerPage() {
         )}
 
         {expenses.length === 0 ? (
-          <div style={{ color: "#6b7280" }}>No expenses yet.</div>
+          <div style={{ color: "#6b7280" }}>
+            No transactions yet.
+          </div>
         ) : filteredExpenses.length === 0 ? (
           <div style={{ color: "#6b7280" }}>
-            No expenses match the selected filters.
+            No transactions match the selected filters.
           </div>
         ) : (
-          <div style={{ display: "grid", gap: 10 }}>
-            {filteredExpenses.map((expense) => {
-              const isSelected = selectedIds.includes(expense.id);
+          <div style={{ display: "grid", gap: 20 }}>
+            {expenseGroups.map((group) => {
+              const groupExpenses = groupedExpenses[group];
+
+              if (groupExpenses.length === 0) {
+                return null;
+              }
 
               return (
-                <div
-                  key={expense.id}
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    gap: 12,
-                    padding: "10px 0",
-                    borderBottom: "1px solid #f3f4f6",
-                    flexWrap: "wrap",
-                  }}
-                >
-                  <div
+                <section key={group}>
+                  <h3
                     style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 10,
-                      minWidth: 0,
+                      margin: "0 0 8px",
+                      paddingBottom: 8,
+                      borderBottom: "2px solid #e5e7eb",
                     }}
                   >
-                    <input
-                      type="checkbox"
-                      checked={isSelected}
-                      onChange={() => toggleSelect(expense.id)}
-                    />
+                    {group} ({groupExpenses.length})
+                  </h3>
 
-                    <div>
-                      <div style={{ fontWeight: 700 }}>
-                        {expense.merchant || expense.category} •{" "}
-                        {expense.category}
-                      </div>
+                  <div style={{ display: "grid", gap: 10 }}>
+                    {groupExpenses.map((expense) => {
+                      const isSelected = selectedIds.includes(
+                        expense.id
+                      );
 
-                      <div style={{ color: "#6b7280", fontSize: 13 }}>
-                        {expense.date} • {expense.paymentMethod} •{" "}
-                        {expense.account}
-                      </div>
-
-                      {expense.notes && (
+                      return (
                         <div
+                          key={expense.id}
                           style={{
-                            color: "#6b7280",
-                            fontSize: 13,
-                            marginTop: 2,
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            gap: 12,
+                            padding: "10px 0",
+                            borderBottom: "1px solid #f3f4f6",
+                            flexWrap: "wrap",
                           }}
                         >
-                          {expense.notes}
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 10,
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() =>
+                                toggleSelect(expense.id)
+                              }
+                            />
+
+                            <div>
+                              <div style={{ fontWeight: 700 }}>
+                                {expense.merchant ||
+                                  expense.category}{" "}
+                                • {expense.category}
+                              </div>
+
+                              <div
+                                style={{
+                                  color: "#6b7280",
+                                  fontSize: 13,
+                                }}
+                              >
+                                {expense.date} •{" "}
+                                {expense.paymentMethod} •{" "}
+                                {expense.account}
+                              </div>
+
+                              {expense.notes && (
+                                <div
+                                  style={{
+                                    color: "#6b7280",
+                                    fontSize: 13,
+                                    marginTop: 2,
+                                  }}
+                                >
+                                  {expense.notes}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          <div
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: 10,
+                            }}
+                          >
+                            <strong>
+                              ₹{expense.amount.toFixed(2)}
+                            </strong>
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleEditExpense(expense)
+                              }
+                              style={{
+                                border: "1px solid #d1d5db",
+                                background: "white",
+                                borderRadius: 8,
+                                padding: "6px 10px",
+                                cursor: "pointer",
+                              }}
+                            >
+                              Edit
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                removeExpense(expense.id);
+                                setSelectedIds((current) =>
+                                  current.filter(
+                                    (id) => id !== expense.id
+                                  )
+                                );
+                              }}
+                              style={{
+                                border: "none",
+                                background: "transparent",
+                                color: "#dc2626",
+                                cursor: "pointer",
+                              }}
+                            >
+                              Delete
+                            </button>
+                          </div>
                         </div>
-                      )}
-                    </div>
+                      );
+                    })}
                   </div>
-
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 10,
-                    }}
-                  >
-                    <strong>₹{expense.amount.toFixed(2)}</strong>
-
-                    <button
-                      type="button"
-                      onClick={() => handleEditExpense(expense)}
-                      style={{
-                        border: "1px solid #d1d5db",
-                        background: "white",
-                        borderRadius: 8,
-                        padding: "6px 10px",
-                        cursor: "pointer",
-                      }}
-                    >
-                      Edit
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => {
-                        removeExpense(expense.id);
-                        setSelectedIds((current) =>
-                          current.filter((id) => id !== expense.id)
-                        );
-                      }}
-                      style={{
-                        border: "none",
-                        background: "transparent",
-                        color: "#dc2626",
-                        cursor: "pointer",
-                      }}
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </div>
+                </section>
               );
             })}
           </div>

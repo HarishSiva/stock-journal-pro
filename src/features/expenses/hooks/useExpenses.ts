@@ -1,3 +1,7 @@
+import {
+  getExpenseGroup,
+  type ExpenseGroup,
+} from "../utils/expenseGroups";
 import { useEffect, useMemo, useState } from "react";
 import type { Expense, ExpenseCategory, ExpenseType } from "../types/expense";
 
@@ -65,40 +69,6 @@ function detectDelimiter(sampleLine: string): string {
   return ",";
 }
 
-function isRowStart(line: string): boolean {
-  return /^\s*(date|\d{1,2}\/\d{1,2}\/\d{2,4})/i.test(line.trim());
-}
-
-function normalizeCsvLines(rawCsv: string): string[] {
-  const physicalLines = rawCsv.split(/\r?\n/);
-  const combined: string[] = [];
-  let currentLine = "";
-
-  for (const rawLine of physicalLines) {
-    const trimmedLine = rawLine.trim();
-    if (!trimmedLine) {
-      continue;
-    }
-
-    if (currentLine === "") {
-      currentLine = trimmedLine;
-      continue;
-    }
-
-    if (isRowStart(trimmedLine)) {
-      combined.push(currentLine);
-      currentLine = trimmedLine;
-    } else {
-      currentLine += " " + trimmedLine;
-    }
-  }
-
-  if (currentLine !== "") {
-    combined.push(currentLine);
-  }
-
-  return combined;
-}
 
 function parseAmountValue(rawValue: string): number {
   const normalized = rawValue.trim().replace(/^[(]/, "-").replace(/[)]$/, "");
@@ -123,8 +93,21 @@ function inferCategoryFromText(description: string): ExpenseCategory {
   if (/(education|course|fees|school|college|tuition)/.test(text)) return "Education";
   if (/(rent|house|flat)/.test(text)) return "Rent";
   if (/(emi|loan|installment)/.test(text)) return "EMI";
-  if (/(salary|credit|refund|bonus|interest|income|deposit|cashback)/.test(text)) return "Investment";
+  if (
+  /(self transfer|self-transfer|fund transfer|own account|internal transfer|transfer between)/.test(
+    text
+  )
+) {
+  return "Self Transfer";
+}
 
+if (/(salary|credit|refund|bonus|interest|income|deposit|cashback)/.test(text)) {
+  return "Income";
+}
+
+if (/(investment|mutual fund|sip|stocks|shares|brokerage)/.test(text)) {
+  return "Investment";
+}
   return "Uncategorized";
 }
 
@@ -149,7 +132,20 @@ export function useExpenses() {
 
     try {
       const raw = window.localStorage.getItem(STORAGE_KEY);
-      return raw ? (JSON.parse(raw) as Expense[]) : [];
+    const parsed: unknown = raw ? JSON.parse(raw) : [];
+
+return Array.isArray(parsed)
+  ? parsed.filter(
+      (item): item is Expense =>
+        Boolean(item) &&
+        typeof item === "object" &&
+        typeof (item as Expense).id === "string" &&
+        typeof (item as Expense).amount === "number" &&
+        typeof (item as Expense).category === "string" &&
+        typeof (item as Expense).type === "string" &&
+        typeof (item as Expense).date === "string"
+    )
+  : [];
     } catch {
       return [];
     }
@@ -286,18 +282,40 @@ export function useExpenses() {
       }
 
       const normalizedAmount = Math.abs(amount);
-      const merchant = getFieldValue(row, [
-        "merchant",
-        "description",
-        "details",
-        "narration",
-        "payee",
-        "particulars",
-        "remarks",
-        "transactiondescription",
-      ]) || "Unknown";
-      const inferredCategory = inferCategoryFromText(merchant);
-      const category = type === "income" && inferredCategory === "Uncategorized" ? "Income" : inferredCategory;
+      const merchant =
+  getFieldValue(row, [
+    "merchant",
+    "description",
+    "details",
+    "narration",
+    "payee",
+    "particulars",
+    "remarks",
+    "transactiondescription",
+  ]) || "Unknown";
+
+const rawCategory = getFieldValue(row, [
+  "category",
+  "expensecategory",
+  "transactioncategory",
+]);
+const classificationText = [
+  merchant,
+  rawType,
+  getFieldValue(row, ["notes", "remarks", "narration"]),
+].join(" ");
+
+const inferredCategory = inferCategoryFromText(classificationText);
+
+const category: ExpenseCategory =
+  rawCategory === "Self Transfer" ||
+  inferredCategory === "Self Transfer"
+    ? "Self Transfer"
+    : rawCategory
+      ? (rawCategory as ExpenseCategory)
+      : type === "income" && inferredCategory === "Uncategorized"
+        ? "Income"
+        : inferredCategory;
       const dateValue = getFieldValue(row, [
         "date",
         "valuedate",
@@ -321,10 +339,29 @@ export function useExpenses() {
       });
     }
 
-    imported.forEach((item) => addExpense(item));
-    return { imported, skipped, errors };
+    addExpenses(imported);
+    return {
+  expenses,
+  addExpense,
+  addExpenses,
+  importExpensesFromCsv,
+  updateExpense,
+  bulkUpdateCategory,
+  removeExpense,
+  removeAllExpenses,
+  totals,
+};
   };
+const addExpenses = (values: Omit<Expense, "id">[]) => {
+  const nextExpenses = values.map((values) => ({
+    ...values,
+    id: createId(),
+  }));
 
+  setExpenses((current) => [...nextExpenses.reverse(), ...current]);
+
+  return nextExpenses;
+};
   const updateExpense = (id: string, values: Partial<Expense>) => {
     setExpenses((current) => current.map((expense) => (expense.id === id ? { ...expense, ...values } : expense)));
   };
@@ -342,22 +379,64 @@ export function useExpenses() {
   };
 
   const totals = useMemo(() => {
-    const monthStart = new Date();
-    monthStart.setDate(1);
-    monthStart.setHours(0, 0, 0, 0);
+  const createTotals = (): Record<ExpenseGroup, number> => ({
+    Income: 0,
+    Expense: 0,
+    Savings: 0,
+    Investments: 0,
+    "Self Transfer": 0,
+  });
 
-    const currentMonthExpenses = expenses.filter((expense) => expense.type === "expense" && new Date(expense.date) >= monthStart);
-    const currentMonthIncome = expenses.filter((expense) => expense.type === "income" && new Date(expense.date) >= monthStart);
+  const totalByGroup = createTotals();
+  const currentMonthByGroup = createTotals();
 
-    return {
-      totalExpenses: expenses.filter((expense) => expense.type === "expense").reduce((sum, expense) => sum + expense.amount, 0),
-      totalIncome: expenses.filter((expense) => expense.type === "income").reduce((sum, expense) => sum + expense.amount, 0),
-      currentMonthExpenses: currentMonthExpenses.reduce((sum, expense) => sum + expense.amount, 0),
-      currentMonthIncome: currentMonthIncome.reduce((sum, expense) => sum + expense.amount, 0),
-      currentMonthSavings: currentMonthIncome.reduce((sum, expense) => sum + expense.amount, 0) - currentMonthExpenses.reduce((sum, expense) => sum + expense.amount, 0),
-      count: expenses.length,
-    };
-  }, [expenses]);
+  const monthStart = new Date();
+  monthStart.setDate(1);
+  monthStart.setHours(0, 0, 0, 0);
+
+  expenses.forEach((expense) => {
+    const group = getExpenseGroup(expense);
+    totalByGroup[group] += expense.amount;
+
+    if (isValidDateOnOrAfter(expense.date, monthStart)) {
+      currentMonthByGroup[group] += expense.amount;
+    }
+  });
+
+  return {
+    totalExpenses: totalByGroup.Expense,
+    totalIncome: totalByGroup.Income,
+    totalSavings: totalByGroup.Savings,
+    totalInvestments: totalByGroup.Investments,
+    totalSelfTransfers: totalByGroup["Self Transfer"],
+
+    currentMonthExpenses: currentMonthByGroup.Expense,
+    currentMonthIncome: currentMonthByGroup.Income,
+    currentMonthSavings: currentMonthByGroup.Savings,
+    currentMonthInvestments: currentMonthByGroup.Investments,
+    currentMonthSelfTransfers: currentMonthByGroup["Self Transfer"],
+
+    netSavings:
+      totalByGroup.Income -
+      totalByGroup.Expense -
+      totalByGroup.Savings -
+      totalByGroup.Investments,
+
+    currentMonthNetSavings:
+      currentMonthByGroup.Income -
+      currentMonthByGroup.Expense -
+      currentMonthByGroup.Savings -
+      currentMonthByGroup.Investments,
+
+    count: expenses.length,
+  };
+}, [expenses]);
 
   return { expenses, addExpense, importExpensesFromCsv, updateExpense, bulkUpdateCategory, removeExpense, removeAllExpenses, totals };
 }
+function isValidDateOnOrAfter(value: string, startDate: Date): boolean {
+  const date = new Date(value);
+
+  return Number.isFinite(date.getTime()) && date >= startDate;
+}
+

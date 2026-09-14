@@ -1,30 +1,46 @@
-export const expenseCategories = [
-  "Grocery",
-  "Fuel",
+import type { ExpenseGroup } from "../utils/expenseGroups";
+
+export type ExpenseType = "expense" | "income";
+
+export type ExpenseCategory =
+  | "Food"
+  | "Fuel"
+  | "Grocery"
+  | "Shopping"
+  | "Medical"
+  | "Education"
+  | "Rent"
+  | "EMI"
+  | "Utilities"
+  | "Savings"
+  | "Investment"
+  | "Income"
+  | "Self Transfer"
+  | "Uncategorized";
+
+export const expenseCategories: ExpenseCategory[] = [
   "Food",
+  "Fuel",
+  "Grocery",
   "Shopping",
   "Medical",
   "Education",
-  "Entertainment",
-  "EMI",
   "Rent",
+  "EMI",
   "Utilities",
-  "Travel",
+  "Savings",
   "Investment",
-  "Insurance",
   "Income",
+  "Self Transfer",
   "Uncategorized",
-] as const;
-
-export type DefaultExpenseCategory = (typeof expenseCategories)[number];
-export type ExpenseCategory = string;
-export type ExpenseType = "expense" | "income";
+];
 
 export interface Expense {
   id: string;
   amount: number;
   type: ExpenseType;
   category: ExpenseCategory;
+  group?: ExpenseGroup;
   paymentMethod: string;
   account: string;
   merchant: string;

@@ -1,34 +1,85 @@
 import type { Expense } from "../types/expense";
+import { getExpenseGroup } from "../utils/expenseGroups";
 
 interface SavingsDashboardProps {
   expenses: Expense[];
 }
 
-export function SavingsDashboard({ expenses }: SavingsDashboardProps) {
-  // Calculate totals
-  const totalIncome = expenses
-    .filter((e) => e.type === "income")
-    .reduce((sum, e) => sum + e.amount, 0);
+const categoryColors = [
+  "#2563eb",
+  "#16a34a",
+  "#f59e0b",
+  "#dc2626",
+  "#9333ea",
+  "#0891b2",
+];
 
-  const totalExpenses = expenses
-    .filter((e) => e.type === "expense")
-    .reduce((sum, e) => sum + e.amount, 0);
+export function SavingsDashboard({
+  expenses,
+}: SavingsDashboardProps) {
+  const incomeItems = expenses.filter(
+    (expense) => getExpenseGroup(expense) === "Income"
+  );
 
+  const expenseItems = expenses.filter(
+    (expense) => getExpenseGroup(expense) === "Expense"
+  );
+
+  const savingsItems = expenses.filter(
+    (expense) => getExpenseGroup(expense) === "Savings"
+  );
+
+  const investmentItems = expenses.filter(
+    (expense) => getExpenseGroup(expense) === "Investments"
+  );
+
+  // Self Transfer items are intentionally excluded.
+  const totalIncome = incomeItems.reduce(
+    (sum, expense) => sum + Math.abs(expense.amount),
+    0
+  );
+
+  const totalExpenses = expenseItems.reduce(
+    (sum, expense) => sum + Math.abs(expense.amount),
+    0
+  );
+
+  const totalSavings = savingsItems.reduce(
+    (sum, expense) => sum + Math.abs(expense.amount),
+    0
+  );
+
+  const totalInvestments = investmentItems.reduce(
+    (sum, expense) => sum + Math.abs(expense.amount),
+    0
+  );
+
+  // Net savings is calculated from Income and Expense groups only.
   const netSavings = totalIncome - totalExpenses;
-  const savingsPercentage = totalIncome > 0 ? (netSavings / totalIncome) * 100 : 0;
 
-  // Expense breakdown by category
-  const expenseByCategory = expenses
-    .filter((e) => e.type === "expense")
+  const savingsPercentage =
+    totalIncome > 0 ? (netSavings / totalIncome) * 100 : 0;
+
+  const expensePercentage =
+    totalIncome > 0 ? (totalExpenses / totalIncome) * 100 : 0;
+
+  const expenseByCategory = expenseItems
     .reduce(
-      (acc, e) => {
-        const existing = acc.find((item) => item.category === e.category);
+      (items, expense) => {
+        const existing = items.find(
+          (item) => item.category === expense.category
+        );
+
         if (existing) {
-          existing.amount += e.amount;
+          existing.amount += Math.abs(expense.amount);
         } else {
-          acc.push({ category: e.category, amount: e.amount });
+          items.push({
+            category: expense.category,
+            amount: Math.abs(expense.amount),
+          });
         }
-        return acc;
+
+        return items;
       },
       [] as Array<{ category: string; amount: number }>
     )
@@ -42,80 +93,115 @@ export function SavingsDashboard({ expenses }: SavingsDashboardProps) {
     }).format(value);
 
   const netSavingsColor = netSavings >= 0 ? "#16a34a" : "#dc2626";
-  const savingsPercentageColor = savingsPercentage >= 0 ? "#16a34a" : "#dc2626";
+
+  const expenseBarWidth = Math.min(
+    Math.max(expensePercentage, 0),
+    100
+  );
+
+  const savingsBarWidth = Math.min(
+    Math.max(savingsPercentage, 0),
+    100
+  );
+
+  const summaryCards = [
+    {
+      label: "TOTAL INCOME",
+      amount: totalIncome,
+      count: incomeItems.length,
+      color: "#16a34a",
+      background: "#f0fdf4",
+    },
+    {
+      label: "TOTAL EXPENSES",
+      amount: totalExpenses,
+      count: expenseItems.length,
+      color: "#dc2626",
+      background: "#fef2f2",
+    },
+    {
+      label: "TOTAL SAVINGS",
+      amount: totalSavings,
+      count: savingsItems.length,
+      color: "#2563eb",
+      background: "#eff6ff",
+    },
+    {
+      label: "TOTAL INVESTMENTS",
+      amount: totalInvestments,
+      count: investmentItems.length,
+      color: "#9333ea",
+      background: "#faf5ff",
+    },
+    {
+      label: "NET SAVINGS",
+      amount: netSavings,
+      count: null,
+      color: netSavingsColor,
+      background: netSavings >= 0 ? "#f0fdf4" : "#fef2f2",
+    },
+  ];
 
   return (
     <div style={{ display: "grid", gap: 24 }}>
-      {/* Main Summary Cards */}
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+          gridTemplateColumns:
+            "repeat(auto-fit, minmax(240px, 1fr))",
           gap: 16,
         }}
       >
-        {/* Total Income Card */}
-        <div
-          style={{
-            background: "#f0fdf4",
-            border: "2px solid #16a34a",
-            borderRadius: 12,
-            padding: 20,
-          }}
-        >
-          <div style={{ fontSize: 13, color: "#16a34a", fontWeight: 600, marginBottom: 8 }}>
-            TOTAL INCOME
-          </div>
-          <div style={{ fontSize: 32, fontWeight: 700, color: "#16a34a", marginBottom: 4 }}>
-            {formatCurrency(totalIncome)}
-          </div>
-          <div style={{ fontSize: 12, color: "#6b7280" }}>
-            {expenses.filter((e) => e.type === "income").length} income entries
-          </div>
-        </div>
+        {summaryCards.map((card) => (
+          <div
+            key={card.label}
+            style={{
+              background: card.background,
+              border: `2px solid ${card.color}`,
+              borderRadius: 12,
+              padding: 20,
+            }}
+          >
+            <div
+              style={{
+                fontSize: 13,
+                color: card.color,
+                fontWeight: 600,
+                marginBottom: 8,
+              }}
+            >
+              {card.label}
+            </div>
 
-        {/* Total Expenses Card */}
-        <div
-          style={{
-            background: "#fef2f2",
-            border: "2px solid #dc2626",
-            borderRadius: 12,
-            padding: 20,
-          }}
-        >
-          <div style={{ fontSize: 13, color: "#dc2626", fontWeight: 600, marginBottom: 8 }}>
-            TOTAL EXPENSES
-          </div>
-          <div style={{ fontSize: 32, fontWeight: 700, color: "#dc2626", marginBottom: 4 }}>
-            {formatCurrency(totalExpenses)}
-          </div>
-          <div style={{ fontSize: 12, color: "#6b7280" }}>
-            {expenses.filter((e) => e.type === "expense").length} expense entries
-          </div>
-        </div>
+            <div
+              style={{
+                fontSize: 30,
+                fontWeight: 700,
+                color: card.color,
+                marginBottom: 4,
+              }}
+            >
+              {formatCurrency(card.amount)}
+            </div>
 
-        {/* Net Savings Card */}
-        <div
-          style={{
-            background: netSavings >= 0 ? "#f0fdf4" : "#fef2f2",
-            border: `2px solid ${netSavingsColor}`,
-            borderRadius: 12,
-            padding: 20,
-          }}
-        >
-          <div style={{ fontSize: 13, color: netSavingsColor, fontWeight: 600, marginBottom: 8 }}>
-            NET SAVINGS
+            {card.count !== null && (
+              <div style={{ fontSize: 12, color: "#6b7280" }}>
+                {card.count} {card.label
+                  .toLowerCase()
+                  .replace("total ", "")}{" "}
+                entries
+              </div>
+            )}
+
+            {card.label === "NET SAVINGS" && (
+              <div style={{ fontSize: 12, color: "#6b7280" }}>
+                {savingsPercentage.toFixed(1)}% of income
+              </div>
+            )}
           </div>
-          <div style={{ fontSize: 32, fontWeight: 700, color: netSavingsColor, marginBottom: 4 }}>
-            {formatCurrency(netSavings)}
-          </div>
-          <div style={{ fontSize: 12, color: "#6b7280" }}>
-            {savingsPercentage.toFixed(1)}% of income
-          </div>
-        </div>
+        ))}
       </div>
 
-      {/* Savings Rate Visualization */}
       <div
         style={{
           background: "white",
@@ -124,66 +210,86 @@ export function SavingsDashboard({ expenses }: SavingsDashboardProps) {
           padding: 20,
         }}
       >
-        <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 16, color: "#111827" }}>
+        <div
+          style={{
+            fontSize: 14,
+            fontWeight: 600,
+            marginBottom: 16,
+            color: "#111827",
+          }}
+        >
           Savings Rate
         </div>
 
-        <div style={{ marginBottom: 12 }}>
-          <div
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            marginBottom: 8,
+            fontSize: 13,
+          }}
+        >
+          <span style={{ color: "#6b7280" }}>
+            Expenses vs Income
+          </span>
+
+          <span
             style={{
-              display: "flex",
-              justifyContent: "space-between",
-              marginBottom: 8,
-              fontSize: 13,
+              fontWeight: 600,
+              color: netSavingsColor,
             }}
           >
-            <span style={{ color: "#6b7280" }}>Expense vs Income</span>
-            <span style={{ fontWeight: 600, color: savingsPercentageColor }}>
-              {savingsPercentage.toFixed(1)}%
-            </span>
-          </div>
+            {savingsPercentage.toFixed(1)}%
+          </span>
+        </div>
+
+        <div
+          style={{
+            height: 24,
+            background: "#e5e7eb",
+            borderRadius: 12,
+            overflow: "hidden",
+            display: "flex",
+          }}
+        >
           <div
             style={{
-              height: 24,
-              background: "#e5e7eb",
-              borderRadius: 12,
-              overflow: "hidden",
-              display: "flex",
+              height: "100%",
+              background: "#dc2626",
+              width: `${expenseBarWidth}%`,
+              transition: "width 0.3s ease",
             }}
-          >
-            <div
-              style={{
-                height: "100%",
-                background: "#dc2626",
-                width: `${Math.min(100 - savingsPercentage, 100)}%`,
-                transition: "width 0.3s ease",
-              }}
-            />
-            <div
-              style={{
-                height: "100%",
-                background: "#16a34a",
-                width: `${Math.max(savingsPercentage, 0)}%`,
-                transition: "width 0.3s ease",
-              }}
-            />
-          </div>
+          />
+
           <div
             style={{
-              display: "flex",
-              justifyContent: "space-between",
-              marginTop: 8,
-              fontSize: 12,
-              color: "#6b7280",
+              height: "100%",
+              background: "#16a34a",
+              width: `${savingsBarWidth}%`,
+              transition: "width 0.3s ease",
             }}
-          >
-            <span>Expenses: {((100 - savingsPercentage).toFixed(1))}%</span>
-            <span>Savings: {Math.max(savingsPercentage, 0).toFixed(1)}%</span>
-          </div>
+          />
+        </div>
+
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            marginTop: 8,
+            fontSize: 12,
+            color: "#6b7280",
+          }}
+        >
+          <span>
+            Expenses: {expensePercentage.toFixed(1)}%
+          </span>
+
+          <span>
+            Savings: {savingsPercentage.toFixed(1)}%
+          </span>
         </div>
       </div>
 
-      {/* Expense Breakdown */}
       {expenseByCategory.length > 0 && (
         <div
           style={{
@@ -193,13 +299,24 @@ export function SavingsDashboard({ expenses }: SavingsDashboardProps) {
             padding: 20,
           }}
         >
-          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 16, color: "#111827" }}>
+          <div
+            style={{
+              fontSize: 14,
+              fontWeight: 600,
+              marginBottom: 16,
+              color: "#111827",
+            }}
+          >
             Expense Breakdown by Category
           </div>
 
           <div style={{ display: "grid", gap: 12 }}>
-            {expenseByCategory.map((item) => {
-              const percentage = (item.amount / totalExpenses) * 100;
+            {expenseByCategory.map((item, index) => {
+              const percentage =
+                totalExpenses > 0
+                  ? (item.amount / totalExpenses) * 100
+                  : 0;
+
               return (
                 <div key={item.category}>
                   <div
@@ -210,11 +327,15 @@ export function SavingsDashboard({ expenses }: SavingsDashboardProps) {
                       fontSize: 13,
                     }}
                   >
-                    <span style={{ fontWeight: 500, color: "#111827" }}>{item.category}</span>
-                    <span style={{ fontWeight: 600, color: "#111827" }}>
+                    <span style={{ fontWeight: 500 }}>
+                      {item.category}
+                    </span>
+
+                    <span style={{ fontWeight: 600 }}>
                       {formatCurrency(item.amount)}
                     </span>
                   </div>
+
                   <div
                     style={{
                       height: 8,
@@ -226,78 +347,27 @@ export function SavingsDashboard({ expenses }: SavingsDashboardProps) {
                     <div
                       style={{
                         height: "100%",
-                        background: `hsl(${Math.random() * 360}, 70%, 50%)`,
+                        background:
+                          categoryColors[
+                            index % categoryColors.length
+                          ],
                         width: `${percentage}%`,
-                        transition: "width 0.3s ease",
                       }}
                     />
                   </div>
-                  <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>
+
+                  <div
+                    style={{
+                      fontSize: 11,
+                      color: "#6b7280",
+                      marginTop: 2,
+                    }}
+                  >
                     {percentage.toFixed(1)}% of expenses
                   </div>
                 </div>
               );
             })}
-          </div>
-        </div>
-      )}
-
-      {/* Top Spending Categories */}
-      {expenseByCategory.length > 0 && (
-        <div
-          style={{
-            background: "white",
-            border: "1px solid #e5e7eb",
-            borderRadius: 12,
-            padding: 20,
-          }}
-        >
-          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 16, color: "#111827" }}>
-            Top Spending Categories
-          </div>
-
-          <div style={{ display: "grid", gap: 12 }}>
-            {expenseByCategory.slice(0, 5).map((item, index) => (
-              <div
-                key={item.category}
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  padding: "12px",
-                  background: "#f9fafb",
-                  borderRadius: 8,
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  <div
-                    style={{
-                      width: 40,
-                      height: 40,
-                      borderRadius: "50%",
-                      background: `hsl(${(index * 60) % 360}, 70%, 60%)`,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      color: "white",
-                      fontWeight: 700,
-                      fontSize: 12,
-                    }}
-                  >
-                    #{index + 1}
-                  </div>
-                  <div>
-                    <div style={{ fontWeight: 600, color: "#111827" }}>{item.category}</div>
-                    <div style={{ fontSize: 12, color: "#6b7280" }}>
-                      {((item.amount / totalExpenses) * 100).toFixed(1)}% of total
-                    </div>
-                  </div>
-                </div>
-                <div style={{ fontWeight: 700, fontSize: 14, color: "#111827" }}>
-                  {formatCurrency(item.amount)}
-                </div>
-              </div>
-            ))}
           </div>
         </div>
       )}

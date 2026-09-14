@@ -11,9 +11,16 @@ export function useExpenseCategories() {
 
     try {
       const raw = window.localStorage.getItem(STORAGE_KEY);
-      const stored = raw ? (JSON.parse(raw) as string[]) : [];
-      const merged = Array.from(new Set([...expenseCategories, ...(Array.isArray(stored) ? stored : [])]));
-      return merged.length > 0 ? merged : expenseCategories;
+      const stored = raw ? JSON.parse(raw) : [];
+
+      const merged = Array.from(
+        new Set([
+          ...expenseCategories,
+          ...(Array.isArray(stored) ? stored : []),
+        ])
+      );
+
+      return merged;
     } catch {
       return expenseCategories;
     }
@@ -24,14 +31,29 @@ export function useExpenseCategories() {
       return;
     }
 
-    const customCategories = categories.filter((category) => !expenseCategories.includes(category));
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(customCategories));
+    const customCategories = categories.filter(
+      (category) => !expenseCategories.includes(category)
+    );
+
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify(customCategories)
+    );
   }, [categories]);
 
   const addCategory = (category: string) => {
+    const normalized = category.trim();
+
+    if (!normalized) {
+      return;
+    }
+
     setCategories((current) => {
-      const normalized = category.trim();
-      if (!normalized || current.some((item) => item.toLowerCase() === normalized.toLowerCase())) {
+      const alreadyExists = current.some(
+        (item) => item.toLowerCase() === normalized.toLowerCase()
+      );
+
+      if (alreadyExists) {
         return current;
       }
 
@@ -44,13 +66,17 @@ export function useExpenseCategories() {
       return;
     }
 
-    setCategories((current) => current.filter((item) => item !== category));
+    setCategories((current) =>
+      current.filter((item) => item !== category)
+    );
   };
 
   return {
     categories,
     defaultCategories: expenseCategories,
-    customCategories: categories.filter((category) => !expenseCategories.includes(category)),
+    customCategories: categories.filter(
+      (category) => !expenseCategories.includes(category)
+    ),
     addCategory,
     removeCategory,
   };
